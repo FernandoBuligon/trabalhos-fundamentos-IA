@@ -7,7 +7,6 @@ import time
 
 
 CUSTOS = {".": 1, "s": 4, "r": 10, "p": 20}
-LIMITE_DESVIO = 10
 INTERVALO = 0.12
 
 
@@ -69,97 +68,161 @@ def reconstruir_rota(pais, destino):
     return rota[::-1]
 
 
-def bfs(mapa, origem, destino, recompensas):
+def caminho_na_arvore(pais, origem, destino):
+    """Liga dois vértices pela árvore da busca, sem atravessar paredes."""
+    ida = reconstruir_rota(pais, origem)
+    volta = reconstruir_rota(pais, destino)
+    comuns = 0
+    while comuns < min(len(ida), len(volta)) and ida[comuns] == volta[comuns]:
+        comuns += 1
+    return ida[comuns - 1:][::-1] + volta[comuns:]
+
+
+def busca_cega(mapa, origem, destino, recompensas, profundidade=False):
+    """Explora em BFS/DFS e monta o percurso físico das coletas encontradas."""
     if not navegavel(mapa, origem) or not navegavel(mapa, destino):
         return None, 0, set()
-    fronteira = deque([origem])
-    pais = {origem: None}
+    fronteira = deque([(origem, None)]) if profundidade else deque([origem])
+    pais = {} if profundidade else {origem: None}
+    rota = [origem]
     expandidos = 0
     encontradas = set()
     while fronteira:
-        atual = fronteira.popleft()
+        if profundidade:
+            atual, pai = fronteira.pop()
+            if atual in pais:
+                continue
+            # Candidatos na pilha não estão descobertos: o ramo atual pode
+            # alcançá-los antes. O pai é o deste aprofundamento efetivo.
+            pais[atual] = pai
+        else:
+            atual = fronteira.popleft()
         expandidos += 1
         if atual in recompensas:
             encontradas.add(atual)
+            # A recompensa sai da exploração e entra no percurso animado.
+            rota.extend(caminho_na_arvore(pais, rota[-1], atual)[1:])
         if atual == destino:
-            return reconstruir_rota(pais, destino), expandidos, encontradas
-        for proximo in vizinhos(mapa, atual):
+            rota.extend(caminho_na_arvore(pais, rota[-1], destino)[1:])
+            return rota, expandidos, encontradas
+        proximos = vizinhos(mapa, atual)
+        if profundidade:
+            proximos.reverse()  # A pilha visita a direita primeiro.
+        for proximo in proximos:
             if proximo not in pais:
-                pais[proximo] = atual
-                fronteira.append(proximo)
+                if profundidade:
+                    fronteira.append((proximo, atual))
+                else:
+                    pais[proximo] = atual
+                    fronteira.append(proximo)
     return None, expandidos, encontradas
 
 
+def bfs(mapa, origem, destino, recompensas):
+    return busca_cega(mapa, origem, destino, recompensas)
+
+
 def dfs(mapa, origem, destino, recompensas):
+    return busca_cega(mapa, origem, destino, recompensas, profundidade=True)
+
+
+def criar_heuristica(mapa, destino):
+    """Retorna custo geométrico mínimo e potencial de coletas sem desvio.
+
+    O potencial conta recompensas em trajetos Manhattan mínimos, em terreno
+    de custo mínimo. É uma estimativa: paredes podem impedir essas coletas.
+    Ele só desempata a prioridade de custo, nunca reduz o custo dos terrenos.
+    """
+    menor_custo = min(CUSTOS.values())
+
+    def heuristica(atual, restantes):
+        if atual == destino:
+            return 0, 0
+        distancia = manhattan(atual, destino)
+        potenciais = sum(
+            manhattan(atual, recompensa) + manhattan(recompensa, destino) == distancia
+            and custo_entrada(mapa, recompensa) == menor_custo
+            for recompensa in restantes
+        )
+        return distancia * menor_custo, potenciais
+
+    return heuristica
+
+
+def reconstruir_estados(pais, estado):
+    return [posicao for posicao, _ in reconstruir_rota(pais, estado)]
+
+
+def busca_informada(mapa, origem, destino, recompensas, usar_custo):
+    """A* usa g+h; Gulosa usa custo da próxima entrada+h, sem somar g.
+
+    O estado registra posição e recompensas restantes. As coletas previstas
+    e já feitas só desempatam a avaliação de custo. A* examina todos os
+    candidatos com f <= custo ótimo antes de escolher o objetivo com mais
+    coletas. Gulosa encerra no primeiro objetivo e não garante otimalidade.
+    """
     if not navegavel(mapa, origem) or not navegavel(mapa, destino):
         return None, 0, set()
-    fronteira = [origem]
-    pais = {origem: None}
+    heuristica = criar_heuristica(mapa, destino)
+    restantes = frozenset(recompensas) - {origem}
+    inicial = (origem, restantes)
+    ordem = count()
+    h, potenciais = heuristica(origem, restantes)
+    coletadas = len(recompensas) - len(restantes)
+    fronteira = [(h, -(coletadas + potenciais), -coletadas, next(ordem), 0, inicial)]
+    pais = {inicial: None}
+    custos = {inicial: 0}
     expandidos = 0
     encontradas = set()
+    melhor_objetivo = None
+    melhor_criterio = None
     while fronteira:
-        atual = fronteira.pop()
+        avaliacao, _, _, _, custo, estado = heappop(fronteira)
+        if usar_custo and melhor_criterio is not None and avaliacao > melhor_criterio[0]:
+            break  # Nenhum candidato restante pode melhorar custo ou coletas.
+        if usar_custo and custo != custos[estado]:
+            continue
+        atual, restantes = estado
         expandidos += 1
         if atual in recompensas:
             encontradas.add(atual)
         if atual == destino:
-            return reconstruir_rota(pais, destino), expandidos, encontradas
-        # A pilha inverte a ordem: inserir ao contrário visita a direita primeiro.
-        for proximo in reversed(vizinhos(mapa, atual)):
-            if proximo not in pais:
-                pais[proximo] = atual
-                fronteira.append(proximo)
+            if not usar_custo:
+                return reconstruir_estados(pais, estado), expandidos, encontradas
+            criterio = (custo, -(len(recompensas) - len(restantes)))
+            if melhor_criterio is None or criterio < melhor_criterio:
+                melhor_criterio = criterio
+                melhor_objetivo = estado
+            continue  # Não se pode sair do objetivo para buscar recompensas.
+        for proximo in vizinhos(mapa, atual):
+            outras = restantes - {proximo}
+            novo_estado = (proximo, outras)
+            novo_custo = custo + custo_entrada(mapa, proximo)
+            if usar_custo:
+                if novo_custo >= custos.get(novo_estado, float("inf")):
+                    continue
+            elif novo_estado in pais:
+                continue
+            pais[novo_estado] = estado
+            custos[novo_estado] = novo_custo
+            h, potenciais = heuristica(proximo, outras)
+            coletadas = len(recompensas) - len(outras)
+            # Gulosa considera o terreno do candidato, sem o custo acumulado.
+            avaliacao = novo_custo + h if usar_custo else custo_entrada(mapa, proximo) + h
+            prioridade = (avaliacao, -(coletadas + potenciais), -coletadas,
+                          next(ordem), novo_custo, novo_estado)
+            heappush(fronteira, prioridade)
+    if melhor_objetivo is not None:
+        return reconstruir_estados(pais, melhor_objetivo), expandidos, encontradas
     return None, expandidos, encontradas
 
 
 def gulosa(mapa, origem, destino, recompensas):
-    if not navegavel(mapa, origem) or not navegavel(mapa, destino):
-        return None, 0, set()
-    ordem = count()
-    fronteira = [(manhattan(origem, destino), next(ordem), origem)]
-    pais = {origem: None}
-    expandidos = 0
-    encontradas = set()
-    while fronteira:
-        _, _, atual = heappop(fronteira)
-        expandidos += 1
-        if atual in recompensas:
-            encontradas.add(atual)
-        if atual == destino:
-            return reconstruir_rota(pais, destino), expandidos, encontradas
-        for proximo in vizinhos(mapa, atual):
-            if proximo not in pais:
-                pais[proximo] = atual
-                heappush(fronteira, (manhattan(proximo, destino), next(ordem), proximo))
-    return None, expandidos, encontradas
+    return busca_informada(mapa, origem, destino, recompensas, False)
 
 
 def a_estrela(mapa, origem, destino, recompensas):
-    if not navegavel(mapa, origem) or not navegavel(mapa, destino):
-        return None, 0, set()
-    ordem = count()
-    fronteira = [(manhattan(origem, destino), next(ordem), 0, origem)]
-    pais = {origem: None}
-    custos = {origem: 0}
-    expandidos = 0
-    encontradas = set()
-    while fronteira:
-        _, _, custo, atual = heappop(fronteira)
-        if custo != custos[atual]:
-            continue  # Uma entrada antiga da fila não é processada nem contada.
-        expandidos += 1
-        if atual in recompensas:
-            encontradas.add(atual)
-        if atual == destino:
-            return reconstruir_rota(pais, destino), expandidos, encontradas
-        for proximo in vizinhos(mapa, atual):
-            novo_custo = custo + custo_entrada(mapa, proximo)
-            if novo_custo < custos.get(proximo, float("inf")):
-                custos[proximo] = novo_custo
-                pais[proximo] = atual
-                prioridade = novo_custo + manhattan(proximo, destino)
-                heappush(fronteira, (prioridade, next(ordem), novo_custo, proximo))
-    return None, expandidos, encontradas
+    return busca_informada(mapa, origem, destino, recompensas, True)
 
 
 ALGORITMOS = {
@@ -170,67 +233,19 @@ ALGORITMOS = {
 }
 
 
-def planejar_recompensas(mapa, direta, recompensas, busca, limite=LIMITE_DESVIO):
-    """Escolhe voltas até recompensas, sempre retornando à rota direta."""
-    previstas = set(direta) & recompensas
-    candidatos = []
-    expandidos = 0
-    encontradas = set()
-    destino = direta[-1]
-    for recompensa in sorted(recompensas - previstas):
-        melhor = None
-        # Não há desvios após chegar ao destino, inclusive se origem == destino.
-        for indice, ponto in enumerate(direta[:-1]):
-            if 2 * manhattan(ponto, recompensa) > limite:
-                continue  # Cada passo custa pelo menos 1, em ambas as direções.
-            ida, nos, vistas = busca(mapa, ponto, recompensa, recompensas)
-            expandidos += nos
-            encontradas.update(vistas)
-            if ida is None or destino in ida:
-                continue
-            volta, nos, vistas = busca(mapa, recompensa, ponto, recompensas)
-            expandidos += nos
-            encontradas.update(vistas)
-            if volta is None or destino in volta:
-                continue
-            adicional = custo_rota(mapa, ida) + custo_rota(mapa, volta)
-            if adicional <= limite and (melhor is None or adicional < melhor[0]):
-                melhor = (adicional, recompensa, indice, ida + volta[1:])
-        if melhor is not None:
-            candidatos.append(melhor)
-
-    desvios = {}
-    # Decide primeiro pelas recompensas com menor custo adicional.
-    for _, recompensa, indice, trecho in sorted(candidatos):
-        if recompensa not in previstas:
-            desvios.setdefault(indice, []).append(trecho)
-            previstas.update(set(trecho) & recompensas)
-
-    rota = []
-    for indice, ponto in enumerate(direta):
-        rota.append(ponto)
-        for trecho in desvios.get(indice, []):
-            rota.extend(trecho[1:])
-    return rota, expandidos, encontradas
-
-
-def executar_busca(mapa, origem, destino, recompensas, busca, com_desvios=True):
-    """Mede a busca inteira, incluindo as buscas auxiliares do planejamento."""
+def executar_busca(mapa, origem, destino, recompensas, busca):
+    """Mede a busca e a construção do percurso, sem entrada ou animação."""
     inicio = time.perf_counter()
-    direta, expandidos, encontradas = busca(mapa, origem, destino, recompensas)
-    rota = direta
-    if direta is not None and com_desvios and busca in (gulosa, a_estrela):
-        rota, adicionais, vistas = planejar_recompensas(mapa, direta, recompensas, busca)
-        expandidos += adicionais
-        encontradas.update(vistas)
+    rota, expandidos, encontradas = busca(mapa, origem, destino, recompensas)
+    coletadas = set(rota or []) & recompensas
+    custo = custo_rota(mapa, rota) if rota is not None else None
     resultado = {
         "rota": rota,
-        "rota_direta": direta,
         "expandidos": expandidos,
         "encontradas": encontradas,
-        "coletadas": set(rota or []) & recompensas,
-        "custo": custo_rota(mapa, rota) if rota is not None else None,
-        "custo_direto": custo_rota(mapa, direta) if direta is not None else None,
+        "coletadas": coletadas,
+        "custo": custo,
+        "criterio": (custo, -len(coletadas)) if rota is not None else None,
         "movimentos": len(rota) - 1 if rota is not None else None,
     }
     resultado["tempo"] = time.perf_counter() - inicio
@@ -306,7 +321,7 @@ def mostrar_resultado(nome, resultado):
     print(f"Recompensas encontradas na exploração: {len(resultado['encontradas'])} "
           f"{sorted(resultado['encontradas'])}")
     if resultado["rota"] is not None:
-        print(f"Custo direto: {resultado['custo_direto']} | Custo executado: {resultado['custo']} "
+        print(f"Custo dos terrenos: {resultado['custo']} "
               f"| Movimentos: {resultado['movimentos']}")
         print(f"Recompensas coletadas na rota: {len(resultado['coletadas'])} "
               f"{sorted(resultado['coletadas'])}")
@@ -315,7 +330,6 @@ def mostrar_resultado(nome, resultado):
 
 
 def comparar(mapa, origem, destino, recompensas):
-    custo_direto_astar = None
     print(f"\nComparação: origem {origem}, destino {destino}")
     print(f"{'Algoritmo':<10} {'Tempo (ms)':>11} {'Expandidos':>11} {'Custo':>7} "
           f"{'Movimentos':>11} {'Coletadas':>10} {'Resultado':>12}")
@@ -327,13 +341,12 @@ def comparar(mapa, origem, destino, recompensas):
         estado = "sucesso" if sucesso else "sem caminho"
         print(f"{nome:<10} {resultado['tempo'] * 1000:>11.3f} {resultado['expandidos']:>11} "
               f"{custo:>7} {movimentos:>11} {len(resultado['coletadas']):>10} {estado:>12}")
-        if busca is a_estrela and sucesso:
-            custo_direto_astar = resultado["custo_direto"]
-    print("BFS minimiza movimentos; BFS e DFS não garantem o menor custo.")
-    print("Gulosa e A*: custos, movimentos e coletas incluem os desvios planejados.")
-    print("Tempo e expansões incluem todas as buscas auxiliares, sem animação.")
-    if custo_direto_astar is not None:
-        print(f"A* sem desvios: custo mínimo {custo_direto_astar}.")
+    print("BFS e DFS coletam todas as recompensas dos vértices processados até o objetivo.")
+    print("Custo é a soma dos terrenos do percurso, incluindo os retornos para coletar.")
+    print("Prioridade: menor custo físico; em empate, mais recompensas.")
+    print("Gulosa avalia o próximo terreno + h; A* usa g+h e garante o ótimo.")
+    print("Expansões de Gulosa/A* contam estados (posição, recompensas restantes).")
+    print("Tempo inclui a busca e construção do percurso, sem animação.")
 
 
 def main():
@@ -342,6 +355,7 @@ def main():
     while True:
         mostrar_mapa(mapa, origem, premio, recompensas)
         mostrar_legenda()
+        print("Buscas informadas: custo primeiro; recompensas nos empates.")
         print("\n1 - BFS | 2 - DFS | 3 - Gulosa | 4 - A* | 5 - Comparar | 0 - Sair")
         opcao = input("Opção: ").strip()
         if opcao == "0":
