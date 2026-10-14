@@ -1,17 +1,59 @@
 # Trabalho 1 — Algoritmos de Busca
 
-Execute com Python 3, sem instalar dependências:
+Execute com Python 3 e suporte a Tkinter:
 
 ```bash
 python3 main.py
 ```
 
-O menu permite escolher BFS, DFS, Gulosa, A* ou comparar os quatro. Informe
-o destino como `x y` (coluna e linha, começando em zero) ou pressione Enter
-para usar o prêmio final `(15, 1)`. Cada execução reinicia o cenário.
+O comando abre uma janela gráfica com o mapa colorido e os controles da
+simulação. Não é necessário instalar pacotes com `pip`. Se Tkinter estiver
+ausente, instale o suporte Tk correspondente ao Python utilizado; no Python
+do sistema em Debian/Ubuntu, o pacote é `python3-tk`. A janela precisa de
+uma sessão gráfica disponível.
+
+### Como usar a janela
+
+- Escolha **BFS**, **DFS**, **Gulosa** ou **A\*** no seletor de algoritmo.
+- Informe o destino como `x y` (coluna e linha, começando em zero), ou
+  clique em uma célula livre do mapa. **Usar prêmio** seleciona `(15, 1)`;
+  deixar o campo vazio também usa esse destino.
+- **Executar** calcula a rota e inicia a animação. **Pausar** interrompe o
+  movimento; **Continuar** retoma do mesmo ponto.
+- **Passo** calcula a rota, se necessário, e avança um movimento por clique.
+- Ajuste a velocidade entre **1 e 12 passos por segundo**, inclusive durante
+  a animação. A janela continua respondendo aos controles.
+- **Reiniciar** devolve o agente à origem e restaura todas as recompensas,
+  mantendo o algoritmo e o destino selecionados. Mudar o algoritmo ou o
+  destino também descarta o percurso anterior.
+- Ative **Custos** para ver o custo de entrada dos terrenos e **Rota planejada**
+  para mostrar o percurso completo em linha tracejada. O caminho já percorrido
+  aparece em azul. Passe o mouse sobre uma célula para consultar seus detalhes.
+- **Comparar os quatro** pausa a animação e preenche a tabela de resultados
+  para o destino escolhido na aba **Comparação**. Dê um duplo clique em uma
+  linha (ou selecione-a e use **Ver rota selecionada** ou Enter) para carregar
+  a rota desse algoritmo, inicialmente pausada, na aba **Mapa e animação**.
+  **Voltar ao mapa** permite retornar sem carregar uma nova rota.
+
+O painel distingue o custo e as recompensas do percurso já executado das
+métricas da busca e do custo final planejado. Destinos inválidos e ausência
+de caminho são informados na própria janela. O mapa se ajusta ao tamanho
+da janela, sem imprimir um novo quadro no terminal a cada movimento.
+
+### Modo terminal
+
+O menu original continua disponível, inclusive em máquinas sem interface gráfica:
+
+```bash
+python3 main.py --terminal
+```
+
+Nesse modo, escolha `1` a `4` para executar uma busca, `5` para comparar
+ou `0` para sair. Informe o destino como `x y` ou pressione Enter para usar
+o prêmio final. Cada execução reinicia o cenário.
 
 O mapa fixo tem 70 vértices navegáveis, paredes, becos sem saída e sete
-recompensas. A legenda aparece no terminal. Os terrenos são separados do
+recompensas. A legenda aparece abaixo do mapa. Os terrenos são separados do
 agente, destino e recompensas: entrar em plano custa 1, areia 4, rocha 10
 e pântano 20. Apenas movimentos horizontais e verticais são permitidos.
 A origem não é cobrada; cada entrada posterior, inclusive retornos, é cobrada.
@@ -86,8 +128,9 @@ origem retorna `h = 7` e `P = 1`; no destino, retorna ambos iguais a zero.
 
 ## Comparação e apresentação
 
-A movimentação mostra cada posição, coleta e custo acumulado, com pausa
-de 0,12 segundo. A comparação mostra tempo, nós expandidos, custo dos
+A janela mostra cada posição, coleta e custo acumulado, com velocidade
+ajustável (inicialmente 4 passos por segundo). No modo terminal, o intervalo
+continua sendo 0,12 segundo. A comparação mostra tempo, nós expandidos, custo dos
 terrenos, movimentos, recompensas coletadas e sucesso ou
 ausência de caminho. `time.perf_counter()` mede a busca e a construção
 do percurso, sem entrada ou animação.
@@ -99,7 +142,8 @@ diferentes conjuntos de recompensas restantes. Essa diferença faz parte
 da comparação. Recompensas encontradas na exploração são mostradas
 separadamente das efetivamente coletadas pelo percurso.
 
-Para apresentar, escolha `5` e Enter:
+Para apresentar, clique em **Comparar os quatro** usando o destino padrão
+`(15, 1)` (ou escolha `5` e Enter no modo terminal):
 
 | Algoritmo | Custo dos terrenos | Movimentos | Coletadas |
 |---|---:|---:|---:|
@@ -113,3 +157,18 @@ nesse custo: uma. Coletar cinco recompensas exige custo mínimo 47; coletar
 as seis acessíveis exige 75. Esses percursos não são preferidos pelo critério
 adotado. A sala em `(8, 9)` é isolada: use esse destino para demonstrar ausência
 de caminho. Sua recompensa não é alcançável a partir da origem.
+
+## Verificação
+
+Execute os testes com a biblioteca padrão do Python:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Os testes conferem os resultados dos quatro algoritmos, destinos inválidos
+e inacessíveis, a reprodução dos custos e coletas, pausa, continuação,
+reinício, comparação e seleção do destino após redimensionar a janela.
+Os testes dos widgets precisam de Tkinter e de uma sessão gráfica;
+quando indisponíveis, são marcados como ignorados. Os testes das buscas
+continuam executando normalmente.

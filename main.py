@@ -3,6 +3,8 @@
 from collections import deque
 from heapq import heappop, heappush
 from itertools import count
+import argparse
+import sys
 import time
 
 
@@ -349,7 +351,7 @@ def comparar(mapa, origem, destino, recompensas):
     print("Tempo inclui a busca e construção do percurso, sem animação.")
 
 
-def main():
+def main_terminal():
     mapa, origem, premio, recompensas = criar_cenario()
     print("Trabalho 1 — Algoritmos de Busca | Cenário: Vale do Prêmio")
     while True:
@@ -377,8 +379,34 @@ def main():
         print("\nCada execução começa novamente na origem, com todas as recompensas.")
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Visualizador de algoritmos de busca.")
+    parser.add_argument("--terminal", action="store_true", help="usar o menu de texto")
+    argumentos = parser.parse_args()
+    if argumentos.terminal:
+        main_terminal()
+        return 0
+    try:
+        from tkinter import TclError
+        from gui import iniciar_interface
+    except ImportError as erro:
+        if erro.name not in {"tkinter", "_tkinter"}:
+            raise
+        print("Tkinter não está disponível neste Python. Instale o suporte Tk "
+              "ou execute: python3 main.py --terminal", file=sys.stderr)
+        return 1
+    try:
+        iniciar_interface()
+    except TclError as erro:
+        print(f"Não foi possível abrir a janela gráfica: {erro}\n"
+              "Confira o suporte Tk e a sessão gráfica. "
+              "Alternativa: python3 main.py --terminal", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except (EOFError, KeyboardInterrupt):
         print("\nEncerrado.")
