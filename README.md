@@ -77,54 +77,40 @@ nenhum percurso é executado e nenhuma recompensa é contabilizada como coletada
 
 ## Gulosa e A*: recompensas na heurística
 
-O PDF define a melhor rota como a de menor custo, mas também pede avaliar
-se compensa desviar para coletar recompensas, sem atribuir valor às coletas
-ou definir quanto custo adicional aceitar. Adotamos a interpretação apoiada
-na definição explícita: **primeiro minimizar o custo físico; em empate,
-maximizar as coletas**. Um percurso mais longo pode compensar se atravessar
-terrenos baratos e mantiver o mesmo custo. Não há pesos ou penalidades
-inventados. Essa é uma interpretação da ambiguidade, não uma regra adicional
-do professor.
-
-Cada estado contém a posição `p` e as recompensas restantes `R`. Se `R0`
-é o conjunto inicial, `q = |R0| - |R|` conta as coletas únicas, incluindo
-uma recompensa na origem ou no destino. A chegada ao destino `d` encerra
-a rota. O critério final é o par `(C, -q)`, ordenado lexicograficamente:
+Para decidir se compensa desviar, cada recompensa deixada para trás custa
+uma penalidade fixa `PENALIDADE = 10` (o mesmo custo de um terreno rochoso).
+As buscas informadas minimizam:
 
 ```text
-C = soma de c(v) em cada entrada do percurso, exceto a posição inicial
-h(p) = c_min × (|x_p - x_d| + |y_p - y_d|)
-P(p, R) = quantidade de r em R com:
-          Manhattan(p, r) + Manhattan(r, d) = Manhattan(p, d)
-          e c(r) = c_min
+total = custo dos terrenos + 10 × recompensas não coletadas
 ```
 
-`c(v)` é o custo do terreno de `v`; `c_min = 1` é o menor custo possível.
-`h` estima o deslocamento restante. `P` estima coletas em terrenos baratos
-sem aumentar a distância geométrica mínima; paredes podem impedir essas
-coletas e não se garante que todas caibam no mesmo percurso. O potencial
-serve apenas para desempatar a avaliação de custo.
+Assim, um desvio vale a pena quando custa menos de 10 por recompensa
+coletada. Cada estado contém a posição `p` e as recompensas restantes `R`.
 
-**A\*** usa a avaliação `(g + h, -(q + P), -q)`, em que `g` é o custo físico
-acumulado. Como cada passo custa pelo menos `c_min`, `h` é admissível e
-consistente. A busca não termina no primeiro objetivo: continua enquanto
-houver candidatos com `g + h` menor ou igual ao melhor custo encontrado.
-Assim encontra o custo mínimo e, entre essas rotas, o máximo de coletas.
+**Heurística.** Seja `dist = Manhattan(p, d)`, sendo `d` o destino. Passar
+por uma recompensa `r` alonga o caminho mínimo em
+`desvio(r) = Manhattan(p, r) + Manhattan(r, d) - dist`. Para pegar as `k`
+recompensas de menor desvio, o agente anda pelo menos `dist` mais o maior
+desvio entre elas e deixa de pagar `k` penalidades:
 
-**Gulosa** usa a avaliação local `(c(v) + h(v), -(q + P), -q)` para cada
-candidato `v`: considera o custo real da próxima entrada e estima o
-restante. Não soma `g` à prioridade, preservando a diferença para A*.
-A origem não é cobrada. Essa avaliação evita preferir um pântano próximo
-somente pela recompensa, mas não garante menor custo nem máximo global
-de coletas. Gulosa encerra no primeiro objetivo processado.
+```text
+h(p, R) = min sobre k = 0..|R| de  c_min × (dist + desvio_k) + 10 × (|R| - k)
+h(d, R) = 10 × |R|        (a rota termina no destino)
+```
 
-No objetivo, `h = 0` e `P = 0`; a recompensa do destino já foi removida de
-`R`. A avaliação do A* é `(g, -q, -q)` e a da Gulosa é `(c(d), -q, -q)`:
-esta inclui a entrada que levou ao destino. Se a origem já for o destino,
-a entrada e a avaliação de custo são zero. Não há penalidade por deixar
-recompensas. Empates restantes seguem a ordem determinística de inserção.
-Por exemplo, escolhendo `(8, 1)` como destino no mapa, a heurística na
-origem retorna `h = 7` e `P = 1`; no destino, retorna ambos iguais a zero.
+`c_min = 1` é o menor custo de terreno e `desvio_0 = 0`. Paredes e terrenos
+caros só aumentam o custo real, então `h` nunca superestima: é admissível e
+consistente.
+
+**A\*** ordena a fronteira por `f = g + h`, em que `g` é o custo dos terrenos
+já percorridos, e para no primeiro destino retirado da fronteira. Esse
+resultado tem o menor total possível. Um teste compara o A* com a busca de
+custo uniforme (`h = 0`) em todos os 70 destinos.
+
+**Gulosa** ordena apenas por `h(n)` e também para no primeiro destino. É
+mais rápida de pensar, mas não garante o menor total. Empates seguem a ordem
+de inserção.
 
 ## Comparação e apresentação
 
@@ -149,13 +135,13 @@ Para apresentar, clique em **Comparar os quatro** usando o destino padrão
 |---|---:|---:|---:|
 | BFS | 241 | 70 | 5 |
 | DFS | 73 | 14 | 1 |
-| Gulosa | 29 | 26 | 2 |
-| A* | 25 | 22 | 1 |
+| Gulosa | 86 | 58 | 6 |
+| A* | 47 | 44 | 5 |
 
-A* encontra custo físico mínimo 25 e a maior quantidade de coletas possível
-nesse custo: uma. Coletar cinco recompensas exige custo mínimo 47; coletar
-as seis acessíveis exige 75. Esses percursos não são preferidos pelo critério
-adotado. A sala em `(8, 9)` é isolada: use esse destino para demonstrar ausência
+O A* desvia para cinco recompensas com custo 47 (total 47 + 2 × 10 = 67).
+Ir direto custaria 25, mas deixaria seis recompensas (total 85). Pegar as
+seis acessíveis custa 75 (total 85). A Gulosa coleta as seis, mas paga
+mais que o A*. A sala em `(8, 9)` é isolada: use esse destino para demonstrar ausência
 de caminho. Sua recompensa não é alcançável a partir da origem.
 
 ## Verificação

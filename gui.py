@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from main import ALGORITMOS, CUSTOS, criar_cenario, executar_busca, navegavel
+from main import ALGORITMOS, CUSTOS, PENALIDADE, criar_cenario, executar_busca, navegavel
 
 
 FUNDO = "#f2f5fa"
@@ -242,7 +242,7 @@ class InterfaceBusca:
         ttk.Label(comparacao, style="Cartao.TLabel", foreground=DISCRETO, justify="left",
                   text="O tempo mede apenas a busca e a construção do percurso.\n"
                        "O custo inclui as entradas em terrenos e os retornos para coletar recompensas.\n"
-                       "Prioridade das buscas informadas: menor custo; em empate, mais coletas.").pack(anchor="w")
+                       f"Gulosa e A*: custo + {PENALIDADE} por recompensa não coletada.").pack(anchor="w")
         self.rotulo_mensagem = ttk.Label(base, textvariable=self.mensagem, wraplength=1000)
         self.rotulo_mensagem.grid(row=3, column=0, sticky="ew", pady=(10, 0))
 

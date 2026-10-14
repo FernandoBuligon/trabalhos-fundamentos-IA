@@ -1,8 +1,10 @@
 """Verificações dos resultados preservados pela nova apresentação."""
 
 import unittest
+from unittest import mock
 
-from main import ALGORITMOS, criar_cenario, executar_busca, manhattan, navegavel
+from main import (ALGORITMOS, PENALIDADE, a_estrela, criar_cenario, executar_busca,
+                  manhattan, navegavel)
 
 
 class TestBuscas(unittest.TestCase):
@@ -11,7 +13,7 @@ class TestBuscas(unittest.TestCase):
 
     def test_resultados_do_cenario_documentado(self):
         esperados = {"BFS": (241, 70, 5), "DFS": (73, 14, 1),
-                     "Gulosa": (29, 26, 2), "A*": (25, 22, 1)}
+                     "Gulosa": (86, 58, 6), "A*": (47, 44, 5)}
         for nome, busca in ALGORITMOS.values():
             with self.subTest(algoritmo=nome):
                 resultado = executar_busca(self.mapa, self.origem, self.premio,
@@ -23,6 +25,27 @@ class TestBuscas(unittest.TestCase):
                 self.assertEqual(rota[-1], self.premio)
                 self.assertTrue(all(navegavel(self.mapa, ponto) for ponto in rota))
                 self.assertTrue(all(manhattan(a, b) == 1 for a, b in zip(rota, rota[1:])))
+
+    def test_a_estrela_coincide_com_custo_uniforme(self):
+        """Com h = 0 a busca vira custo uniforme, que é ótima por definição."""
+        def total(resultado):
+            faltam = self.recompensas - resultado["coletadas"]
+            return resultado["custo"] + PENALIDADE * len(faltam)
+
+        sem_heuristica = lambda mapa, destino: (
+            lambda atual, restantes: PENALIDADE * len(restantes) if atual == destino else 0)
+        destinos = [(x, y) for y, linha in enumerate(self.mapa)
+                    for x in range(len(linha)) if navegavel(self.mapa, (x, y))]
+        for destino in destinos:
+            with self.subTest(destino=destino):
+                a_estrela_ = executar_busca(self.mapa, self.origem, destino,
+                                            self.recompensas, a_estrela)
+                with mock.patch("main.criar_heuristica", sem_heuristica):
+                    uniforme = executar_busca(self.mapa, self.origem, destino,
+                                              self.recompensas, a_estrela)
+                self.assertEqual(a_estrela_["rota"] is None, uniforme["rota"] is None)
+                if uniforme["rota"] is not None:
+                    self.assertEqual(total(a_estrela_), total(uniforme))
 
     def test_destino_inacessivel_nao_coleta_recompensas(self):
         for nome, busca in ALGORITMOS.values():
