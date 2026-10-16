@@ -18,16 +18,17 @@ from main import criar_cenario
 class TestDestino(unittest.TestCase):
     def test_formatos_validos(self):
         mapa, _, premio, _ = criar_cenario()
-        for entrada in ("", "  ", "15 1", "15, 1"):
-            with self.subTest(entrada=entrada):
-                self.assertEqual(interpretar_destino(mapa, entrada, premio), premio)
+        for x, y in (("", ""), ("  ", " "), ("15", "1"), (" 15 ", "1")):
+            with self.subTest(x=x, y=y):
+                self.assertEqual(interpretar_destino(mapa, x, y, premio), premio)
 
     def test_coordenadas_invalidas(self):
         mapa, _, premio, _ = criar_cenario()
-        for entrada in ("a b", "15", "1 1 1", "1.5 1", "0 0", "-1 1", "17 1", "1 11"):
-            with self.subTest(entrada=entrada):
+        for x, y in (("a", "b"), ("15", ""), ("", "1"), ("1.5", "1"), ("0", "0"),
+                     ("-1", "1"), ("17", "1"), ("1", "11")):
+            with self.subTest(x=x, y=y):
                 with self.assertRaises(ValueError):
-                    interpretar_destino(mapa, entrada, premio)
+                    interpretar_destino(mapa, x, y, premio)
 
 
 @unittest.skipIf(tk is None, "Tkinter não está instalado")
@@ -97,7 +98,8 @@ class TestInterface(unittest.TestCase):
         self.assertEqual(self.app.posicao, self.app.resultado["rota"][self.app.passo])
 
     def test_destino_na_origem_conclui_sem_agendar_movimento(self):
-        self.app.entrada_destino.set("1 1")
+        self.app.destino_x.set("1")
+        self.app.destino_y.set("1")
         self.app.executar()
         self.assertEqual(self.app.estado.get(), "Concluído")
         self.assertEqual(self.app.custo, 0)
@@ -106,18 +108,21 @@ class TestInterface(unittest.TestCase):
 
     def test_recompensa_na_origem_e_coletada_sem_cobrar_entrada(self):
         self.app.recompensas.add(self.app.origem)
-        self.app.entrada_destino.set("1 1")
+        self.app.destino_x.set("1")
+        self.app.destino_y.set("1")
         self.app.executar()
         self.assertEqual(self.app.coletadas, {self.app.origem})
         self.assertEqual(self.app.custo, 0)
 
     def test_destino_inacessivel_e_entrada_invalida(self):
-        self.app.entrada_destino.set("8 9")
+        self.app.destino_x.set("8")
+        self.app.destino_y.set("9")
         self.app.executar()
         self.assertEqual(self.app.estado.get(), "Sem caminho")
         self.assertEqual(self.app.coletadas, set())
         self.assertIsNone(self.app.agendamento)
-        self.app.entrada_destino.set("0 0")
+        self.app.destino_x.set("0")
+        self.app.destino_y.set("0")
         self.app.executar()
         self.assertEqual(self.app.estado.get(), "Destino inválido")
         self.assertEqual(self.app.custo, 0)
@@ -136,7 +141,8 @@ class TestInterface(unittest.TestCase):
     def test_mudar_destino_descarta_rota_e_comparacao_anteriores(self):
         self.app.executar()
         self.app.comparar()
-        self.app.entrada_destino.set("8 1")
+        self.app.destino_x.set("8")
+        self.app.destino_y.set("1")
         self.app._destino_editado(SimpleNamespace(keysym="1"))
         self.assertEqual(self.app.destino, (8, 1))
         self.assertIsNone(self.app.resultado)
@@ -146,12 +152,36 @@ class TestInterface(unittest.TestCase):
 
     def test_colar_destino_antes_de_comparar_reinicia_percurso_antigo(self):
         self.app.avancar_um_passo()
-        self.app.entrada_destino.set("8 1")
+        self.app.destino_x.set("8")
+        self.app.destino_y.set("1")
         self.app.comparar()
         self.assertEqual(self.app.destino, (8, 1))
         self.assertIsNone(self.app.resultado)
         self.assertEqual(self.app.posicao, self.app.origem)
         self.assertEqual(self.app.custo, 0)
+
+    def test_editar_campo_x_muda_destino(self):
+        self.app.destino_x.set("14")
+        self.app._destino_alterado()
+        self.assertEqual(self.app.destino, (14, 1))
+        self.assertEqual(self.app.info_destino.get(), "Plano · custo 1")
+
+    def test_comparacao_destaca_menor_total_e_desenha_grafico(self):
+        self.app.comparar()
+        self.assertEqual(self.app.tabela.item("A*", "tags"), ("melhor",))
+        self.assertEqual(self.app.tabela.item("BFS", "tags"), "")
+        self.janela.update()
+        self.assertGreater(len(self.app.grafico.find_all()), 16)
+
+    def test_atalhos_de_teclado(self):
+        evento = SimpleNamespace(widget=self.app.canvas)
+        self.app._atalho(evento, self.app._alternar_execucao)
+        self.assertTrue(self.app.tocando)
+        self.app._atalho(evento, self.app._alternar_execucao)
+        self.assertFalse(self.app.tocando)
+        campo = SimpleNamespace(widget=self.app.campo_destino)
+        self.app._atalho(campo, self.app.reiniciar)
+        self.assertIsNotNone(self.app.resultado)
 
     def test_teclas_de_navegacao_no_campo_nao_reiniciam_animacao(self):
         self.app.avancar_um_passo()
@@ -160,7 +190,8 @@ class TestInterface(unittest.TestCase):
         self.assertIsNotNone(self.app.resultado)
 
     def test_comparacao_de_destino_inacessivel(self):
-        self.app.entrada_destino.set("8 9")
+        self.app.destino_x.set("8")
+        self.app.destino_y.set("9")
         self.app.comparar()
         for nome, resultado in self.app.comparacao.items():
             with self.subTest(algoritmo=nome):
@@ -169,9 +200,13 @@ class TestInterface(unittest.TestCase):
                 self.assertEqual(self.app.tabela.item(nome, "values")[-1], "Sem caminho")
 
     def test_janela_compacta_mantem_mapa_legivel_e_metricas_visiveis(self):
+        """O tamanho mínimo segue a fonte do sistema; reduzir mais não corta nada."""
         self.janela.deiconify()
         self.janela.geometry("940x700")
         self.janela.update()
+        largura_minima, altura_minima = self.janela.minsize()
+        self.assertGreaterEqual(self.janela.winfo_width(), min(940, largura_minima))
+        self.assertGreaterEqual(self.janela.winfo_height(), min(700, altura_minima))
         self.assertGreaterEqual(self.app.geometria_mapa[2], 22)
         painel = self.app.progresso.master
         limite_inferior = painel.winfo_rooty() + painel.winfo_height()

@@ -15,9 +15,9 @@ uma sessão gráfica disponível.
 ### Como usar a janela
 
 - Escolha **BFS**, **DFS**, **Gulosa** ou **A\*** no seletor de algoritmo.
-- Informe o destino como `x y` (coluna e linha, começando em zero), ou
-  clique em uma célula livre do mapa. **Usar prêmio** seleciona `(15, 1)`;
-  deixar o campo vazio também usa esse destino.
+- Informe o destino nos campos **X** (coluna) e **Y** (linha), começando em
+  zero. Digite os valores ou clique em uma célula livre do mapa. Ao lado dos campos aparece o terreno escolhido. **Prêmio** seleciona
+  `(15, 1)`; deixar os dois campos vazios também usa esse destino.
 - **Executar** calcula a rota e inicia a animação. **Pausar** interrompe o
   movimento; **Continuar** retoma do mesmo ponto.
 - **Passo** calcula a rota, se necessário, e avança um movimento por clique.
@@ -29,8 +29,13 @@ uma sessão gráfica disponível.
 - Ative **Custos** para ver o custo de entrada dos terrenos e **Rota planejada**
   para mostrar o percurso completo em linha tracejada. O caminho já percorrido
   aparece em azul. Passe o mouse sobre uma célula para consultar seus detalhes.
-- **Comparar os quatro** pausa a animação e preenche a tabela de resultados
-  para o destino escolhido na aba **Comparação**. Dê um duplo clique em uma
+- Atalhos: **Espaço** executa ou pausa, **→** avança um passo e **R** reinicia
+  (fora dos campos de texto).
+- **Comparar todos** pausa a animação e preenche a tabela de resultados
+  para o destino escolhido na aba **Comparação**. Cartões no topo indicam o
+  melhor algoritmo em total, tempo, nós expandidos e memória; a linha com o
+  menor total fica em verde, e um gráfico de barras compara tempo, nós
+  expandidos, nós armazenados e total (★ marca o menor valor de cada métrica). Dê um duplo clique em uma
   linha (ou selecione-a e use **Ver rota selecionada** ou Enter) para carregar
   a rota desse algoritmo, inicialmente pausada, na aba **Mapa e animação**.
   **Voltar ao mapa** permite retornar sem carregar uma nova rota.
@@ -149,7 +154,7 @@ expandem **mais** estados que as cegas, porque resolvem um problema maior.
 Recompensas encontradas na exploração são mostradas separadamente das
 efetivamente coletadas pelo percurso.
 
-Para apresentar, clique em **Comparar os quatro** usando o destino padrão
+Para apresentar, clique em **Comparar todos** usando o destino padrão
 `(15, 1)` (ou escolha `5` e Enter no modo terminal):
 
 | Algoritmo | Terrenos | Total | Movimentos | Coletadas | Expandidos | Pico da fronteira | Armazenados |
@@ -163,8 +168,9 @@ O total conta as sete recompensas do mapa, inclusive a da sala isolada.
 O A* desvia para cinco recompensas com custo 47 (total 47 + 2 × 10 = 67).
 Ir direto custaria 25, mas deixaria seis recompensas (total 85). Pegar as
 seis acessíveis custa 75 (total 85). A Gulosa coleta as seis, mas paga
-mais que o A*. A sala em `(8, 9)` é isolada: use esse destino para demonstrar ausência
-de caminho. Sua recompensa não é alcançável a partir da origem.
+mais que o A*. A sala em `(8, 9)`, nas linhas 8 a 10 do mapa e marcada com contorno
+tracejado na janela, é isolada: só paredes a cercam. Use esse destino para
+demonstrar ausência de caminho. Sua recompensa não é alcançável a partir da origem.
 
 ## Verificação
 
