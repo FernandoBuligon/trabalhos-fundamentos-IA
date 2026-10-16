@@ -10,7 +10,10 @@ import time
 
 CUSTOS = {".": 1, "s": 4, "r": 10, "p": 20}
 INTERVALO = 0.12
-PENALIDADE = 10  # Custo de terminar a rota sem uma recompensa.
+# Decisão de modelagem do projeto (não fixada no enunciado): cada recompensa
+# deixada para trás custa o mesmo que um terreno rochoso. Gulosa e A* tratam o
+# problema "custo dos terrenos + PENALIDADE x recompensas não coletadas".
+PENALIDADE = 10
 
 
 def criar_cenario():
@@ -81,14 +84,33 @@ def caminho_na_arvore(pais, origem, destino):
     return ida[comuns - 1:][::-1] + volta[comuns:]
 
 
+def nova_medida(fronteira=0):
+    """Métricas de processamento e memória de uma busca.
+
+    expandidos: nós retirados da fronteira cujos sucessores foram gerados
+    (o objetivo é testado ao sair da fronteira e não é expandido).
+    pico_fronteira: maior quantidade de entradas na fronteira ao mesmo tempo,
+    incluindo duplicatas da pilha e entradas obsoletas do heap.
+    armazenados: estados distintos gerados e mantidos na memória da busca
+    (abertos e fechados), contados uma única vez.
+    """
+    return {"expandidos": 0, "pico_fronteira": fronteira, "armazenados": 0}
+
+
+def finalizar_medida(medida, gerados):
+    medida["armazenados"] = len(gerados)
+    return medida
+
+
 def busca_cega(mapa, origem, destino, recompensas, profundidade=False):
     """Explora em BFS/DFS e monta o percurso físico das coletas encontradas."""
     if not navegavel(mapa, origem) or not navegavel(mapa, destino):
-        return None, 0, set()
+        return None, nova_medida(), set()
     fronteira = deque([(origem, None)]) if profundidade else deque([origem])
     pais = {} if profundidade else {origem: None}
+    gerados = {origem}
     rota = [origem]
-    expandidos = 0
+    medida = nova_medida(fronteira=1)
     encontradas = set()
     while fronteira:
         if profundidade:
@@ -100,25 +122,27 @@ def busca_cega(mapa, origem, destino, recompensas, profundidade=False):
             pais[atual] = pai
         else:
             atual = fronteira.popleft()
-        expandidos += 1
         if atual in recompensas:
             encontradas.add(atual)
             # A recompensa sai da exploração e entra no percurso animado.
             rota.extend(caminho_na_arvore(pais, rota[-1], atual)[1:])
         if atual == destino:
             rota.extend(caminho_na_arvore(pais, rota[-1], destino)[1:])
-            return rota, expandidos, encontradas
+            return rota, finalizar_medida(medida, gerados), encontradas
+        medida["expandidos"] += 1
         proximos = vizinhos(mapa, atual)
         if profundidade:
             proximos.reverse()  # A pilha visita a direita primeiro.
         for proximo in proximos:
             if proximo not in pais:
+                gerados.add(proximo)
                 if profundidade:
                     fronteira.append((proximo, atual))
                 else:
                     pais[proximo] = atual
                     fronteira.append(proximo)
-    return None, expandidos, encontradas
+        medida["pico_fronteira"] = max(medida["pico_fronteira"], len(fronteira))
+    return None, finalizar_medida(medida, gerados), encontradas
 
 
 def bfs(mapa, origem, destino, recompensas):
@@ -136,12 +160,15 @@ def criar_heuristica(mapa, destino):
     desvio(r). Desviar até as k recompensas de menor desvio custa pelo
     menos c_min x (distância + maior desvio entre elas) e evita k
     penalidades. h é o menor valor entre k = 0, 1, ..., |R|.
+    No estado final (após a ação de finalizar), h = 0.
     """
     menor_custo = min(CUSTOS.values())
 
-    def heuristica(atual, restantes):
+    def heuristica(atual, restantes, final=False):
+        if final:
+            return 0  # h(meta) = 0: a penalidade já foi cobrada em g.
         if atual == destino:
-            return PENALIDADE * len(restantes)  # A rota termina no destino.
+            return PENALIDADE * len(restantes)  # Resta apenas finalizar.
         distancia = manhattan(atual, destino)
         desvios = sorted(manhattan(atual, r) + manhattan(r, destino) - distancia
                          for r in restantes)
@@ -155,39 +182,55 @@ def criar_heuristica(mapa, destino):
     return heuristica
 
 
+def sucessores(mapa, destino, estado):
+    """Ações do problema composto: mover para um vizinho ou finalizar.
+
+    A rota termina ao chegar no destino: lá, a única ação é "finalizar",
+    que leva ao estado final (meta) com custo PENALIDADE x recompensas
+    restantes. Assim a penalidade integra g e a meta tem h = 0, como na
+    formulação da aula.
+    """
+    atual, restantes, _ = estado
+    if atual == destino:
+        yield (atual, restantes, True), PENALIDADE * len(restantes)
+        return
+    for proximo in vizinhos(mapa, atual):
+        yield (proximo, restantes - {proximo}, False), custo_entrada(mapa, proximo)
+
+
 def reconstruir_estados(pais, estado):
-    return [posicao for posicao, _ in reconstruir_rota(pais, estado)]
+    return [posicao for posicao, _, final in reconstruir_rota(pais, estado) if not final]
 
 
 def busca_informada(mapa, origem, destino, recompensas, usar_custo):
     """A* ordena por f = g + h; Gulosa ordena apenas por h.
 
-    O estado é (posição, recompensas restantes). g é o custo dos terrenos e,
-    no destino, soma a penalidade das recompensas não coletadas.
+    O estado é (posição, recompensas restantes, finalizado). g soma os
+    terrenos e, na ação de finalizar, as penalidades das recompensas não
+    coletadas. A meta é o estado finalizado no destino, com h = 0.
     """
     if not navegavel(mapa, origem) or not navegavel(mapa, destino):
-        return None, 0, set()
+        return None, nova_medida(), set()
     heuristica = criar_heuristica(mapa, destino)
-    inicial = (origem, frozenset(recompensas) - {origem})
+    inicial = (origem, frozenset(recompensas) - {origem}, False)
     ordem = count()
     fronteira = [(heuristica(*inicial), next(ordem), 0, inicial)]
     pais = {inicial: None}
     custos = {inicial: 0}
-    expandidos = 0
+    medida = nova_medida(fronteira=1)
     encontradas = set()
     while fronteira:
         _, _, custo, estado = heappop(fronteira)
         if custo != custos[estado]:
             continue  # Entrada obsoleta: o estado já foi alcançado mais barato.
-        atual, restantes = estado
-        expandidos += 1
+        atual, _, final = estado
         if atual in recompensas:
             encontradas.add(atual)
-        if atual == destino:
-            return reconstruir_estados(pais, estado), expandidos, encontradas
-        for proximo in vizinhos(mapa, atual):
-            novo_estado = (proximo, restantes - {proximo})
-            novo_custo = custo + custo_entrada(mapa, proximo)
+        if final:
+            return reconstruir_estados(pais, estado), finalizar_medida(medida, pais), encontradas
+        medida["expandidos"] += 1
+        for novo_estado, passo in sucessores(mapa, destino, estado):
+            novo_custo = custo + passo
             if usar_custo:
                 if novo_custo >= custos.get(novo_estado, float("inf")):
                     continue
@@ -198,7 +241,8 @@ def busca_informada(mapa, origem, destino, recompensas, usar_custo):
             h = heuristica(*novo_estado)
             prioridade = novo_custo + h if usar_custo else h
             heappush(fronteira, (prioridade, next(ordem), novo_custo, novo_estado))
-    return None, expandidos, encontradas
+        medida["pico_fronteira"] = max(medida["pico_fronteira"], len(fronteira))
+    return None, finalizar_medida(medida, pais), encontradas
 
 
 def gulosa(mapa, origem, destino, recompensas):
@@ -220,15 +264,18 @@ ALGORITMOS = {
 def executar_busca(mapa, origem, destino, recompensas, busca):
     """Mede a busca e a construção do percurso, sem entrada ou animação."""
     inicio = time.perf_counter()
-    rota, expandidos, encontradas = busca(mapa, origem, destino, recompensas)
+    rota, medida, encontradas = busca(mapa, origem, destino, recompensas)
     coletadas = set(rota or []) & recompensas
     custo = custo_rota(mapa, rota) if rota is not None else None
     resultado = {
         "rota": rota,
-        "expandidos": expandidos,
+        **medida,
         "encontradas": encontradas,
         "coletadas": coletadas,
         "custo": custo,
+        # Objetivo composto: terrenos + penalidade das recompensas alcançáveis
+        # ou não que ficaram para trás. Só Gulosa/A* tentam minimizá-lo.
+        "total": custo + PENALIDADE * len(recompensas - coletadas) if rota is not None else None,
         "movimentos": len(rota) - 1 if rota is not None else None,
     }
     resultado["tempo"] = time.perf_counter() - inicio
@@ -300,12 +347,13 @@ def animar(mapa, rota, premio, recompensas, intervalo=INTERVALO):
 def mostrar_resultado(nome, resultado):
     print(f"\n{nome}: {'sucesso' if resultado['rota'] is not None else 'sem caminho'}")
     print(f"Tempo de busca e planejamento: {resultado['tempo'] * 1000:.3f} ms")
-    print(f"Nós expandidos: {resultado['expandidos']}")
+    print(f"Nós expandidos: {resultado['expandidos']} | Pico da fronteira: "
+          f"{resultado['pico_fronteira']} | Nós armazenados: {resultado['armazenados']}")
     print(f"Recompensas encontradas na exploração: {len(resultado['encontradas'])} "
           f"{sorted(resultado['encontradas'])}")
     if resultado["rota"] is not None:
-        print(f"Custo dos terrenos: {resultado['custo']} "
-              f"| Movimentos: {resultado['movimentos']}")
+        print(f"Custo dos terrenos: {resultado['custo']} | Total com penalidades: "
+              f"{resultado['total']} | Movimentos: {resultado['movimentos']}")
         print(f"Recompensas coletadas na rota: {len(resultado['coletadas'])} "
               f"{sorted(resultado['coletadas'])}")
     else:
@@ -314,21 +362,27 @@ def mostrar_resultado(nome, resultado):
 
 def comparar(mapa, origem, destino, recompensas):
     print(f"\nComparação: origem {origem}, destino {destino}")
-    print(f"{'Algoritmo':<10} {'Tempo (ms)':>11} {'Expandidos':>11} {'Custo':>7} "
-          f"{'Movimentos':>11} {'Coletadas':>10} {'Resultado':>12}")
+    print(f"{'Algoritmo':<10} {'Tempo (ms)':>11} {'Expandidos':>11} {'Pico fr.':>9} "
+          f"{'Armazen.':>9} {'Terrenos':>9} {'Total':>6} {'Mov.':>5} {'Colet.':>7} "
+          f"{'Resultado':>12}")
     for nome, busca in ALGORITMOS.values():
         resultado = executar_busca(mapa, origem, destino, recompensas, busca)
         sucesso = resultado["rota"] is not None
         custo = str(resultado["custo"]) if sucesso else "-"
+        total = str(resultado["total"]) if sucesso else "-"
         movimentos = str(resultado["movimentos"]) if sucesso else "-"
         estado = "sucesso" if sucesso else "sem caminho"
         print(f"{nome:<10} {resultado['tempo'] * 1000:>11.3f} {resultado['expandidos']:>11} "
-              f"{custo:>7} {movimentos:>11} {len(resultado['coletadas']):>10} {estado:>12}")
-    print("BFS e DFS coletam todas as recompensas dos vértices processados até o objetivo.")
-    print("Custo é a soma dos terrenos do percurso, incluindo os retornos para coletar.")
-    print(f"Gulosa/A* minimizam custo + {PENALIDADE} por recompensa não coletada.")
-    print("Gulosa ordena por h; A* ordena por g+h e garante o ótimo.")
-    print("Expansões de Gulosa/A* contam estados (posição, recompensas restantes).")
+              f"{resultado['pico_fronteira']:>9} {resultado['armazenados']:>9} {custo:>9} "
+              f"{total:>6} {movimentos:>5} {len(resultado['coletadas']):>7} {estado:>12}")
+    print("Terrenos: soma dos custos de entrada, incluindo retornos para coletar.")
+    print(f"Total: terrenos + {PENALIDADE} por recompensa não coletada (penalidade "
+          "definida pelo projeto).")
+    print("Só A* garante o menor Total; a Gulosa tenta reduzi-lo sem garantia.")
+    print("BFS e DFS não usam o Total: coletam as recompensas dos vértices processados.")
+    print("Expandidos: nós cujos sucessores foram gerados. Pico fr.: maior fronteira.")
+    print("Armazen.: estados distintos mantidos na memória da busca.")
+    print("BFS/DFS usam estados (posição); Gulosa/A* usam (posição, restantes, final).")
     print("Tempo inclui a busca e construção do percurso, sem animação.")
 
 

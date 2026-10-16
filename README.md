@@ -77,67 +77,89 @@ nenhum percurso é executado e nenhuma recompensa é contabilizada como coletada
 
 ## Gulosa e A*: recompensas na heurística
 
-Para decidir se compensa desviar, cada recompensa deixada para trás custa
-uma penalidade fixa `PENALIDADE = 10` (o mesmo custo de um terreno rochoso).
-As buscas informadas minimizam:
+**Decisão de modelagem do projeto.** O enunciado define a melhor rota pelo
+menor custo, mas também pede que o agente avalie quando compensa desviar
+para pegar recompensas. Ele não atribui um valor às recompensas. Para
+colocar os dois critérios na mesma escala, o projeto adota uma penalidade
+fixa `PENALIDADE = 10` (o custo de um terreno rochoso) por recompensa
+deixada para trás. Esse valor é uma escolha nossa, não uma regra do
+enunciado: com ele, um desvio compensa quando custa menos de 10 por
+recompensa coletada. As buscas informadas tratam o problema composto:
 
 ```text
 total = custo dos terrenos + 10 × recompensas não coletadas
 ```
 
-Assim, um desvio vale a pena quando custa menos de 10 por recompensa
-coletada. Cada estado contém a posição `p` e as recompensas restantes `R`.
+Esse total é diferente do menor custo apenas em terrenos (25 no destino
+padrão) e não equivale a pegar todas as recompensas a qualquer preço.
 
-**Heurística.** Seja `dist = Manhattan(p, d)`, sendo `d` o destino. Passar
-por uma recompensa `r` alonga o caminho mínimo em
+**Formulação.** O estado é `(p, R, final)`: posição, recompensas restantes
+e se a rota já foi encerrada. As ações são mover para um vizinho (custo do
+terreno de entrada) e, ao chegar no destino `d`, **finalizar**: a única ação
+disponível em `d`, que leva ao estado meta com custo `10 × |R|`. Assim a
+penalidade faz parte de `g`, e a meta é o estado finalizado.
+
+**Heurística.** Seja `dist = Manhattan(p, d)`. Passar por uma recompensa `r`
+alonga o caminho mínimo em
 `desvio(r) = Manhattan(p, r) + Manhattan(r, d) - dist`. Para pegar as `k`
 recompensas de menor desvio, o agente anda pelo menos `dist` mais o maior
 desvio entre elas e deixa de pagar `k` penalidades:
 
 ```text
 h(p, R) = min sobre k = 0..|R| de  c_min × (dist + desvio_k) + 10 × (|R| - k)
-h(d, R) = 10 × |R|        (a rota termina no destino)
+h(d, R) = 10 × |R|        (custo exato da ação de finalizar)
+h(meta) = 0
 ```
 
 `c_min = 1` é o menor custo de terreno e `desvio_0 = 0`. Paredes e terrenos
-caros só aumentam o custo real, então `h` nunca superestima: é admissível e
-consistente.
+caros só aumentam o custo real, então `h` nunca superestima o custo
+restante do problema composto: é admissível e consistente. Um teste
+percorre todas as transições alcançáveis do destino padrão conferindo
+`h(n) ≤ c(n, n') + h(n')` e `h(meta) = 0`.
 
-**A\*** ordena a fronteira por `f = g + h`, em que `g` é o custo dos terrenos
-já percorridos, e para no primeiro destino retirado da fronteira. Esse
-resultado tem o menor total possível. Um teste compara o A* com a busca de
-custo uniforme (`h = 0`) em todos os 70 destinos.
+**A\*** ordena a fronteira por `f = g + h` e para quando retira a meta.
+A garantia de otimalidade vale **para o total composto**, não para o custo
+apenas dos terrenos. Um teste compara o A* com a busca de custo uniforme
+(`h = 0`) em todos os 70 destinos.
 
-**Gulosa** ordena apenas por `h(n)` e também para no primeiro destino. É
-mais rápida de pensar, mas não garante o menor total. Empates seguem a ordem
-de inserção.
+**Gulosa** ordena apenas por `h(n)`. Ela tenta reduzir o mesmo total, mas
+não garante o menor valor. Empates seguem a ordem de inserção.
 
 ## Comparação e apresentação
 
 A janela mostra cada posição, coleta e custo acumulado, com velocidade
 ajustável (inicialmente 4 passos por segundo). No modo terminal, o intervalo
-continua sendo 0,12 segundo. A comparação mostra tempo, nós expandidos, custo dos
-terrenos, movimentos, recompensas coletadas e sucesso ou
-ausência de caminho. `time.perf_counter()` mede a busca e a construção
-do percurso, sem entrada ou animação.
+continua sendo 0,12 segundo. `time.perf_counter()` mede a busca e a
+construção do percurso, sem entrada ou animação. A comparação mostra:
 
-Uma expansão corresponde a um estado retirado da fronteira e processado,
-inclusive o destino; entradas obsoletas do A* não contam. BFS/DFS processam
-cada vértice uma vez. Gulosa/A* podem processar a mesma posição com
-diferentes conjuntos de recompensas restantes. Essa diferença faz parte
-da comparação. Recompensas encontradas na exploração são mostradas
-separadamente das efetivamente coletadas pelo percurso.
+| Coluna | Significado |
+|---|---|
+| Tempo | Busca e construção do percurso, em milissegundos. |
+| Expandidos | Nós retirados da fronteira cujos sucessores foram gerados. O objetivo é testado ao sair da fronteira e não é expandido; entradas obsoletas do A* não contam. |
+| Pico da fronteira | Maior número de entradas na fronteira ao mesmo tempo (inclui duplicatas da pilha da DFS e entradas obsoletas do heap, pois ocupam memória). |
+| Armazenados | Estados distintos gerados e mantidos na memória da busca (abertos e fechados), contados uma vez. |
+| Terrenos | Soma dos custos de entrada do percurso, incluindo retornos. |
+| Total | Terrenos + 10 por recompensa não coletada. Só Gulosa/A* usam esse critério. |
+
+BFS/DFS operam sobre posições; Gulosa/A* operam sobre
+`(posição, recompensas restantes, final)`. Por isso a mesma posição pode
+aparecer em vários estados, e os números de memória não são diretamente
+equivalentes entre os dois grupos. Neste problema, as buscas informadas
+expandem **mais** estados que as cegas, porque resolvem um problema maior.
+Recompensas encontradas na exploração são mostradas separadamente das
+efetivamente coletadas pelo percurso.
 
 Para apresentar, clique em **Comparar os quatro** usando o destino padrão
 `(15, 1)` (ou escolha `5` e Enter no modo terminal):
 
-| Algoritmo | Custo dos terrenos | Movimentos | Coletadas |
-|---|---:|---:|---:|
-| BFS | 241 | 70 | 5 |
-| DFS | 73 | 14 | 1 |
-| Gulosa | 86 | 58 | 6 |
-| A* | 47 | 44 | 5 |
+| Algoritmo | Terrenos | Total | Movimentos | Coletadas | Expandidos | Pico da fronteira | Armazenados |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| BFS | 241 | 261 | 70 | 5 | 48 | 6 | 51 |
+| DFS | 73 | 133 | 14 | 1 | 14 | 3 | 17 |
+| Gulosa | 86 | 96 | 58 | 6 | 524 | 77 | 601 |
+| A* | 47 | 67 | 44 | 5 | 1118 | 113 | 1219 |
 
+O total conta as sete recompensas do mapa, inclusive a da sala isolada.
 O A* desvia para cinco recompensas com custo 47 (total 47 + 2 × 10 = 67).
 Ir direto custaria 25, mas deixaria seis recompensas (total 85). Pegar as
 seis acessíveis custa 75 (total 85). A Gulosa coleta as seis, mas paga
@@ -152,7 +174,8 @@ Execute os testes com a biblioteca padrão do Python:
 python3 -m unittest discover -s tests -v
 ```
 
-Os testes conferem os resultados dos quatro algoritmos, destinos inválidos
+Os testes conferem os resultados dos quatro algoritmos, a consistência da
+heurística, as métricas de memória, destinos inválidos
 e inacessíveis, a reprodução dos custos e coletas, pausa, continuação,
 reinício, comparação e seleção do destino após redimensionar a janela.
 Os testes dos widgets precisam de Tkinter e de uma sessão gráfica;

@@ -65,7 +65,8 @@ class InterfaceBusca:
         self.metricas = {
             chave: tk.StringVar(janela, "—")
             for chave in ("custo", "passos", "coletas", "posicao", "tempo",
-                          "expandidos", "encontradas", "custo_final", "movimentos")
+                          "expandidos", "pico_fronteira", "armazenados", "encontradas",
+                          "custo_final", "total", "movimentos")
         }
         self._criar_widgets()
         self.reiniciar()
@@ -205,8 +206,9 @@ class InterfaceBusca:
             row=8, column=0, columnspan=2, sticky="w", pady=(8, 4))
         for linha, (titulo, chave) in enumerate(
                 (("Tempo", "tempo"), ("Nós expandidos", "expandidos"),
-                 ("Encontradas na busca", "encontradas"), ("Custo final", "custo_final"),
-                 ("Movimentos totais", "movimentos")), 9):
+                 ("Pico da fronteira", "pico_fronteira"), ("Nós armazenados", "armazenados"),
+                 ("Encontradas na busca", "encontradas"), ("Custo dos terrenos", "custo_final"),
+                 ("Total com penalidades", "total"), ("Movimentos totais", "movimentos")), 9):
             self._metrica(painel, linha, titulo, chave)
 
         legenda = ttk.Frame(self.aba_mapa)
@@ -220,13 +222,15 @@ class InterfaceBusca:
 
         comparacao = self.aba_comparacao
         ttk.Label(comparacao, text="Comparação dos algoritmos", style="Secao.TLabel").pack(anchor="w")
-        colunas = ("algoritmo", "tempo", "expandidos", "custo", "movimentos", "coletadas", "estado")
+        colunas = ("algoritmo", "tempo", "expandidos", "pico_fronteira", "armazenados", "custo",
+                   "total", "movimentos", "coletadas", "estado")
         self.tabela = ttk.Treeview(comparacao, columns=colunas, show="headings", height=4,
                                    selectmode="browse")
-        titulos = ("Algoritmo", "Tempo (ms)", "Expandidos", "Custo", "Movimentos", "Coletadas", "Resultado")
+        titulos = ("Algoritmo", "Tempo (ms)", "Expandidos", "Pico fronteira", "Armazenados",
+                   "Terrenos", "Total", "Movimentos", "Coletadas", "Resultado")
         for coluna, titulo in zip(colunas, titulos):
             self.tabela.heading(coluna, text=titulo)
-            self.tabela.column(coluna, width=105, minwidth=75,
+            self.tabela.column(coluna, width=95, minwidth=70,
                                anchor="w" if coluna in {"algoritmo", "estado"} else "e")
         self.tabela.pack(fill="x", pady=(6, 4))
         self.tabela.bind("<Double-1>", self._abrir_comparacao)
@@ -241,8 +245,11 @@ class InterfaceBusca:
                    command=lambda: self.abas.select(self.aba_mapa)).pack(side="left")
         ttk.Label(comparacao, style="Cartao.TLabel", foreground=DISCRETO, justify="left",
                   text="O tempo mede apenas a busca e a construção do percurso.\n"
-                       "O custo inclui as entradas em terrenos e os retornos para coletar recompensas.\n"
-                       f"Gulosa e A*: custo + {PENALIDADE} por recompensa não coletada.").pack(anchor="w")
+                       "Terrenos: entradas em terrenos, incluindo retornos para coletar recompensas.\n"
+                       f"Total: terrenos + {PENALIDADE} por recompensa não coletada (penalidade definida pelo projeto).\n"
+                       "Só o A* garante o menor Total; a Gulosa tenta reduzi-lo sem garantia; BFS e DFS não o utilizam.\n"
+                       "Expandidos: nós cujos sucessores foram gerados. Pico fronteira: maior fronteira simultânea.\n"
+                       "Armazenados: estados distintos mantidos na memória (Gulosa/A* incluem as recompensas restantes).").pack(anchor="w")
         self.rotulo_mensagem = ttk.Label(base, textvariable=self.mensagem, wraplength=1000)
         self.rotulo_mensagem.grid(row=3, column=0, sticky="ew", pady=(10, 0))
 
@@ -317,7 +324,8 @@ class InterfaceBusca:
                                        self.recompensas, self.algoritmos[self.algoritmo.get()])
         self.resultado = resultado
         self.metricas["tempo"].set(f"{resultado['tempo'] * 1000:.3f} ms")
-        self.metricas["expandidos"].set(str(resultado["expandidos"]))
+        for chave in ("expandidos", "pico_fronteira", "armazenados"):
+            self.metricas[chave].set(str(resultado[chave]))
         self.metricas["encontradas"].set(str(len(resultado["encontradas"])))
         if resultado["rota"] is None:
             self._avisar("Sem caminho", f"{self.algoritmo.get()}: não existe caminho até {self.destino}. "
@@ -325,6 +333,7 @@ class InterfaceBusca:
             self._atualizar_botoes()
             return False
         self.metricas["custo_final"].set(str(resultado["custo"]))
+        self.metricas["total"].set(str(resultado["total"]))
         self.metricas["movimentos"].set(str(resultado["movimentos"]))
         self.posicao = resultado["rota"][0]
         self.coletadas = {self.posicao} & self.recompensas
@@ -444,7 +453,9 @@ class InterfaceBusca:
             sucesso = resultado["rota"] is not None
             self.tabela.insert("", "end", iid=nome, values=(
                 nome, f"{resultado['tempo'] * 1000:.3f}", resultado["expandidos"],
+                resultado["pico_fronteira"], resultado["armazenados"],
                 resultado["custo"] if sucesso else "—",
+                resultado["total"] if sucesso else "—",
                 resultado["movimentos"] if sucesso else "—",
                 len(resultado["coletadas"]), "Sucesso" if sucesso else "Sem caminho"))
         self._avisar("Comparação pronta", f"Resultados até {self.destino}. Tempo mede a busca e o planejamento, "

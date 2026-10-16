@@ -3,8 +3,8 @@
 import unittest
 from unittest import mock
 
-from main import (ALGORITMOS, PENALIDADE, a_estrela, criar_cenario, executar_busca,
-                  manhattan, navegavel)
+from main import (ALGORITMOS, PENALIDADE, a_estrela, criar_cenario, criar_heuristica,
+                  executar_busca, manhattan, navegavel, sucessores)
 
 
 class TestBuscas(unittest.TestCase):
@@ -28,12 +28,7 @@ class TestBuscas(unittest.TestCase):
 
     def test_a_estrela_coincide_com_custo_uniforme(self):
         """Com h = 0 a busca vira custo uniforme, que é ótima por definição."""
-        def total(resultado):
-            faltam = self.recompensas - resultado["coletadas"]
-            return resultado["custo"] + PENALIDADE * len(faltam)
-
-        sem_heuristica = lambda mapa, destino: (
-            lambda atual, restantes: PENALIDADE * len(restantes) if atual == destino else 0)
+        sem_heuristica = lambda mapa, destino: lambda atual, restantes, final=False: 0
         destinos = [(x, y) for y, linha in enumerate(self.mapa)
                     for x in range(len(linha)) if navegavel(self.mapa, (x, y))]
         for destino in destinos:
@@ -45,7 +40,36 @@ class TestBuscas(unittest.TestCase):
                                               self.recompensas, a_estrela)
                 self.assertEqual(a_estrela_["rota"] is None, uniforme["rota"] is None)
                 if uniforme["rota"] is not None:
-                    self.assertEqual(total(a_estrela_), total(uniforme))
+                    self.assertEqual(a_estrela_["total"], uniforme["total"])
+
+    def test_heuristica_nula_na_meta_e_consistente(self):
+        """h(meta) = 0 e h(n) <= c(n, n') + h(n') em todas as transições alcançáveis."""
+        h = criar_heuristica(self.mapa, self.premio)
+        inicial = (self.origem, frozenset(self.recompensas), False)
+        pendentes, vistos = [inicial], {inicial}
+        while pendentes:
+            estado = pendentes.pop()
+            if estado[2]:
+                self.assertEqual(h(*estado), 0)
+                continue
+            for proximo, custo in sucessores(self.mapa, self.premio, estado):
+                self.assertLessEqual(h(*estado), custo + h(*proximo))
+                if proximo not in vistos:
+                    vistos.add(proximo)
+                    pendentes.append(proximo)
+
+    def test_metricas_de_memoria(self):
+        for nome, busca in ALGORITMOS.values():
+            with self.subTest(algoritmo=nome):
+                resultado = executar_busca(self.mapa, self.origem, self.premio,
+                                           self.recompensas, busca)
+                self.assertGreater(resultado["pico_fronteira"], 0)
+                self.assertGreaterEqual(resultado["armazenados"], resultado["expandidos"])
+                self.assertGreaterEqual(resultado["armazenados"], resultado["pico_fronteira"]
+                                        if nome != "DFS" else 1)
+        a_estrela_ = executar_busca(self.mapa, self.origem, self.premio,
+                                    self.recompensas, a_estrela)
+        self.assertEqual(a_estrela_["total"], 67)
 
     def test_destino_inacessivel_nao_coleta_recompensas(self):
         for nome, busca in ALGORITMOS.values():
